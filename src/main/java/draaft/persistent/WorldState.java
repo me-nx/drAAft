@@ -7,6 +7,7 @@ import net.minecraft.world.PersistentState;
 
 import java.io.*;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 
@@ -15,25 +16,25 @@ public class WorldState extends PersistentState {
     /**
      * Enum defining the different types of Random Number Generators managed by WorldState.
      */
-    public enum RngType {
-        PEARL("pearl"),
-        BARTER("barter"),
-        TRIDENT("trident"),
-        SKULL("skull"),
-        CAT("cat"),
-        PHANTOM("phantom"),
-        BLAZE("blaze"),
-        SHULKER("shulker"),
-        RABBIT("rabbit"),
-        TEMPLE("temple"),
-        TNT("tnt"),
-        MINED("mined"),
-        JUNK("junk"),
-        EXPLODING_SHELLS("exploding_shells");
+    public static class RngType {
+        public static final RngType PEARL = new RngType("pearl");
+        public static final RngType BARTER = new RngType("barter");
+        public static final RngType TRIDENT = new RngType("trident");
+        public static final RngType SKULL = new RngType("skull");
+        public static final RngType CAT = new RngType("cat");
+        public static final RngType PHANTOM = new RngType("phantom");
+        public static final RngType BLAZE = new RngType("blaze");
+        public static final RngType SHULKER = new RngType("shulker");
+        public static final RngType RABBIT = new RngType("rabbit");
+        public static final RngType TEMPLE = new RngType("temple");
+        public static final RngType TNT = new RngType("tnt");
+        public static final RngType MINED = new RngType("mined");
+        public static final RngType JUNK = new RngType("junk");
+        public static final RngType EXPLODING_SHELLS = new RngType("exploding_shells");
 
         private final String keyName; // The base name used for NBT keys
 
-        RngType(String keyName) {
+        public RngType(String keyName) {
             this.keyName = keyName;
         }
 
@@ -51,13 +52,10 @@ public class WorldState extends PersistentState {
     }
 
     // Use EnumMap for potentially better performance and memory usage with enum keys
-    private final Map<RngType, RandomState> randomStates = new EnumMap<>(RngType.class);
+    private final Map<RngType, RandomState> randomStates = new HashMap<>();
 
     public WorldState(String key) {
         super(key);
-        for (RngType type : RngType.values()) {
-            randomStates.put(type, new RandomState(null, type));
-        }
     }
 
     /**
@@ -72,24 +70,27 @@ public class WorldState extends PersistentState {
 
     @Override
     public void fromTag(CompoundTag tag) {
-        for (RandomState randomState : randomStates.values()) {
-            deserializeFromTag(tag, randomState);
+        for (var key : tag.getKeys()) {
+            var type = new RngType(key);
+
+            randomStates.put(type, deserializeFromTag(tag, type));
         }
     }
 
-    private void deserializeFromTag(CompoundTag tag, RandomState randomState) {
-        String primaryKey = randomState.getNbtKey();
-        String counterKey = randomState.getCounterNbtKey();
-        if (tag.contains(primaryKey)) {
-            try (ByteArrayInputStream bais = new ByteArrayInputStream(tag.getByteArray(primaryKey)); ObjectInputStream ois = new ObjectInputStream(bais)) {
-                randomState.setRandom((Random) ois.readObject());
-                randomState.setUses(tag.getInt(counterKey));
-            } catch (IOException | ClassNotFoundException e) {
-                draaft.LOGGER.warn("Unable to deserialize RNG state for key '{}', will create new random.", primaryKey, e);
-            }
-        } else {
-            draaft.LOGGER.warn("No existing RNG state found for key '{}', will create new random.", primaryKey);
+    private RandomState deserializeFromTag(CompoundTag tag, RngType type) {
+        String primaryKey = type.getNbtKey();
+        String counterKey = type.getCounterNbtKey();
+
+        try (ByteArrayInputStream bais = new ByteArrayInputStream(tag.getByteArray(primaryKey)); ObjectInputStream ois = new ObjectInputStream(bais)) {
+            var randomState = new RandomState((Random) ois.readObject(), type);
+            randomState.setUses(tag.getInt(counterKey));
+
+            return randomState;
+        } catch (IOException | ClassNotFoundException e) {
+            draaft.LOGGER.warn("Unable to deserialize RNG state for key '{}', will create new random.", primaryKey, e);
         }
+
+        return new RandomState(null, type);
     }
 
     @Override
@@ -123,11 +124,10 @@ public class WorldState extends PersistentState {
      * @return The RandomState instance for the specified type.
      */
     public RandomState getOrCreateRng(RngType type, ServerWorld world) {
-        // EnumMap guarantees the key exists if initialized correctly
-        RandomState randomState = randomStates.get(type);
+        RandomState randomState = randomStates.computeIfAbsent(type, (k) -> new RandomState(null, type));
 
         if (randomState.getRandom() == null) {
-            draaft.LOGGER.info("Initializing '{}' RNG state. Is Client: {}", type.name(), world.isClient);
+            draaft.LOGGER.info("Initializing '{}' RNG state. Is Client: {}", type.getKeyName(), world.isClient);
             long seed = world.getSeed();
             randomState.setRandom(new Random(seed));
         }
